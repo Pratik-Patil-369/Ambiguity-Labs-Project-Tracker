@@ -30,9 +30,9 @@ KNOWN_FOLDERS = {
 }
 
 FALLBACK_PROJECTS = [
-    {"name": "CDG_Starfish_Pilot_uTYAV_Coding_V3", "id": "bf595aee-ae7d-471d-9047-5662498079bd", "submitter": True, "reviewer": False},
-    {"name": "CDG_Starfish_Pilot_uTYAV_Coding", "id": "cb869485-67bf-4aba-85aa-fc63a7d82e19", "submitter": True, "reviewer": False},
-    {"name": "[Asimov - General] Workflows Assessment", "id": "9d4d5c89-5f04-479a-a83d-242d702079ca", "submitter": True, "reviewer": False}
+    {"name": "CDG_Starfish_Pilot_uTYAV_Coding_V3", "id": "bf595aee-ae7d-471d-9047-5662498079bd"},
+    {"name": "CDG_Starfish_Pilot_uTYAV_Coding", "id": "cb869485-67bf-4aba-85aa-fc63a7d82e19"},
+    {"name": "[Asimov - General] Workflows Assessment", "id": "9d4d5c89-5f04-479a-a83d-242d702079ca"}
 ]
 
 FALLBACK_V3_SUBS = [
@@ -62,10 +62,25 @@ FALLBACK_V1_SUBS = [
     {"num": "13", "id": "d2673bdf-fff4-45d3-9a65-8eeb9b416625", "created": "08/26 21:55", "folder": "pmu-fault-localization", "state": "ACCEPTED", "payment": "PENDING"}
 ]
 
-def get_api_key():
-    key = os.environ.get("SNORKEL_API_KEY")
-    if key:
-        return key.strip()
+def resolve_api_key(req_handler):
+    # 1. Check custom header from browser client
+    client_key = req_handler.headers.get("X-Snorkel-Key")
+    if client_key and client_key.strip():
+        return client_key.strip()
+    
+    # 2. Check Authorization Bearer header
+    auth_header = req_handler.headers.get("Authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        token = auth_header[7:].strip()
+        if token:
+            return token
+
+    # 3. Check Vercel server environment variable
+    env_key = os.environ.get("SNORKEL_API_KEY")
+    if env_key and env_key.strip():
+        return env_key.strip()
+
+    # 4. Check local machine config file (when running locally)
     config_path = os.path.expanduser("~/.config/stb/config.ini")
     if os.path.exists(config_path):
         try:
@@ -76,61 +91,71 @@ def get_api_key():
                 return cp["auth"]["api_key"].strip()
         except Exception:
             pass
+
     return None
 
-def fetch_live_data(api_key):
+def fetch_projects_dynamic(api_key):
+    """Dynamically fetches all assigned projects from Snorkel API for this user."""
+    headers = {"x-key": api_key, "Accept": "application/json"}
+    req = urllib.request.Request(f"{BASE_API_URL}/users/me", headers=headers)
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        user_data = json.loads(resp.read().decode())
+    
+    attr = user_data.get("attribute_data") or {}
+    assigned = attr.get("assigned_projects") or []
+    
+    projects = []
+    seen = set()
+    for p in assigned:
+        pid = p.get("project_id")
+        name = p.get("name")
+        if pid and pid not in seen:
+            seen.add(pid)
+            projects.append({"name": name, "id": pid})
+            
+    # Always sort so Starfish projects appear at the top
+    projects.sort(key=lambda x: (not ("Starfish" in x["name"]), x["name"]))
+    return projects
+
+def fetch_assignments_dynamic(api_key, project_id):
+    """Dynamically fetches assignments for the user, filtered by project."""
     headers = {"x-key": api_key, "Accept": "application/json"}
     
     # 1. Get user email
     req_me = urllib.request.Request(f"{BASE_API_URL}/users/me", headers=headers)
     with urllib.request.urlopen(req_me, timeout=10) as resp:
-        me_data = json.loads(resp.read().decode())
-        email = me_data.get("email")
+        user_data = json.loads(resp.read().decode())
+        email = user_data.get("email")
     if not email:
-        raise ValueError("Could not get user email")
+        raise ValueError("User email not found")
 
     # 2. Get assignments
-    url_assign = f"{BASE_API_URL}/assignments?assignee={quote(email, safe='')}"
-    req_assign = urllib.request.Request(url_assign, headers=headers)
+    url = f"{BASE_API_URL}/assignments?assignee={quote(email, safe='')}"
+    req_assign = urllib.request.Request(url, headers=headers)
     with urllib.request.urlopen(req_assign, timeout=12) as resp:
-        assign_data = json.loads(resp.read().decode())
-        raw_list = assign_data.get("assignments", [])
+        data = json.loads(resp.read().decode())
+        raw_list = data.get("assignments") or []
 
-    return raw_list
+    filtered = [a for a in raw_list if not project_id or a.get("project_id") == project_id]
+    
+    subs = []
+    for idx, a in enumerate(filtered, 1):
+        task_id = a.get("task_id") or a.get("assignment_id") or ""
+        folder = KNOWN_FOLDERS.get(task_id, a.get("task_title") or f"task-{task_id[:8]}")
+        raw_created = a.get("created_at") or ""
+        created = raw_created[5:16].replace("-", "/") if len(raw_created) >= 16 else raw_created
+        subs.append({
+            "num": str(idx),
+            "id": task_id,
+            "created": created,
+            "folder": folder,
+            "state": a.get("status", ""),
+            "payment": a.get("payment_status", "PENDING")
+        })
+    return subs
 
-def get_submissions_for_project(project_id):
-    api_key = get_api_key()
-    if api_key:
-        try:
-            raw_list = fetch_live_data(api_key)
-            filtered = [a for a in raw_list if a.get("project_id") == project_id or not project_id]
-            subs = []
-            for idx, a in enumerate(filtered, 1):
-                sub_id = a.get("task_id") or a.get("assignment_id") or ""
-                folder = KNOWN_FOLDERS.get(sub_id, f"task-{sub_id[:8]}")
-                raw_created = a.get("created_at", "")
-                created = raw_created[5:16].replace("-", "/") if len(raw_created) >= 16 else raw_created
-                subs.append({
-                    "num": str(idx),
-                    "id": sub_id,
-                    "created": created,
-                    "folder": folder,
-                    "state": a.get("status", ""),
-                    "payment": a.get("payment_status", "PENDING")
-                })
-            if subs:
-                return subs
-        except Exception as e:
-            print(f"Error fetching live assignments: {e}")
-
-    # Fallback data
-    if "bf595aee" in project_id:
-        return FALLBACK_V3_SUBS
-    elif "cb869485" in project_id:
-        return FALLBACK_V1_SUBS
-    return []
-
-def get_feedback_for_sub(sub_id):
+def fetch_feedback_dynamic(api_key, sub_id):
+    """Fetches reviewer and audit notes for an assignment."""
     if sub_id == "f3ffa96f-4ddf-4696-97c8-b868cff8580a":
         return ("📋 PRIOR QC / AUDIT REVIEWER FEEDBACK:\n"
                 "Review closed two findings: report numeric checks matched any number in the text, "
@@ -141,52 +166,79 @@ def get_feedback_for_sub(sub_id):
                 "inside \"based\" or \"database\" and passing a report that never named the BASE case, so it was "
                 "tightened to word boundaries; it also relaxed a check that had rejected the contract's own "
                 "term \"pre-insertion energy,\" raising the weaker model's pass count from 3/5 to 4/5.")
-    
-    api_key = get_api_key()
-    if api_key:
-        try:
-            headers = {"x-key": api_key, "Accept": "application/json"}
-            # Fetch directly from DaaS assignment
-            url = f"{BASE_API_URL}/assignment/{sub_id}"
-            req = urllib.request.Request(url, headers=headers)
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                task = json.loads(resp.read().decode())
-                sections = []
-                accept_notes = (task.get("accept_notes") or "").strip()
-                if accept_notes:
-                    sections.append("🎉 REVIEWER ACCEPT NOTES:\n" + accept_notes)
-                revision_notes = (task.get("revision_notes") or "").strip()
-                if revision_notes:
-                    sections.append("📝 REVISION NOTES:\n" + revision_notes)
-                sd = task.get("static_document") or {}
-                if isinstance(sd, dict):
-                    sd_inner = sd.get("static_document") or {}
-                    fb = (sd_inner.get("Feedback") or sd.get("Feedback") or "").strip()
-                    if fb:
-                        sections.append("📋 PRIOR QC / AUDIT REVIEWER FEEDBACK:\n" + fb)
-                if sections:
-                    return "\n\n" + ("="*75) + "\n\n".join(sections)
-        except Exception:
-            pass
-
+                
+    headers = {"x-key": api_key, "Accept": "application/json"}
+    try:
+        url = f"{BASE_API_URL}/assignment/{sub_id}"
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            task = json.loads(resp.read().decode())
+            sections = []
+            accept_notes = (task.get("accept_notes") or "").strip()
+            if accept_notes:
+                sections.append("🎉 REVIEWER ACCEPT NOTES:\n" + accept_notes)
+            revision_notes = (task.get("revision_notes") or "").strip()
+            if revision_notes:
+                sections.append("📝 REVISION NOTES:\n" + revision_notes)
+            sd = task.get("static_document") or {}
+            if isinstance(sd, dict):
+                sd_inner = sd.get("static_document") or {}
+                fb = (sd_inner.get("Feedback") or sd.get("Feedback") or "").strip()
+                if fb:
+                    sections.append("📋 PRIOR QC / AUDIT REVIEWER FEEDBACK:\n" + fb)
+            if sections:
+                return "\n\n" + ("="*75) + "\n\n".join(sections)
+    except Exception:
+        pass
+        
     return "ℹ️ TASK DETAILS:\nBenchmark task accepted directly on the platform without requiring revisions."
 
 class handler(BaseHTTPRequestHandler):
+    def do_OPTIONS(self):
+        self.send_response(200)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Snorkel-Key, Authorization")
+        self.end_headers()
+
     def do_GET(self):
         parsed = urlparse(self.path)
         path = parsed.path
+        api_key = resolve_api_key(self)
 
         if path.endswith("/projects"):
+            projects = None
+            if api_key:
+                try:
+                    projects = fetch_projects_dynamic(api_key)
+                except Exception as e:
+                    print(f"Dynamic project fetch failed: {e}")
+            if not projects:
+                projects = FALLBACK_PROJECTS
+                
             self.send_response(200)
             self.send_header("Content-type", "application/json")
             self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
-            self.wfile.write(json.dumps(FALLBACK_PROJECTS).encode("utf-8"))
+            self.wfile.write(json.dumps(projects).encode("utf-8"))
 
         elif path.endswith("/submissions"):
             qs = parse_qs(parsed.query)
             proj_id = qs.get("project", ["bf595aee-ae7d-471d-9047-5662498079bd"])[0]
-            subs = get_submissions_for_project(proj_id)
+            subs = None
+            if api_key:
+                try:
+                    subs = fetch_assignments_dynamic(api_key, proj_id)
+                except Exception as e:
+                    print(f"Dynamic assignments fetch failed: {e}")
+            if subs is None or len(subs) == 0:
+                if "bf595aee" in proj_id:
+                    subs = FALLBACK_V3_SUBS
+                elif "cb869485" in proj_id:
+                    subs = FALLBACK_V1_SUBS
+                else:
+                    subs = []
+
             self.send_response(200)
             self.send_header("Content-type", "application/json")
             self.send_header("Access-Control-Allow-Origin", "*")
@@ -196,7 +248,7 @@ class handler(BaseHTTPRequestHandler):
         elif path.endswith("/feedback"):
             qs = parse_qs(parsed.query)
             sub_id = qs.get("id", [""])[0]
-            fb = get_feedback_for_sub(sub_id)
+            fb = fetch_feedback_dynamic(api_key, sub_id) if api_key else fetch_feedback_dynamic("", sub_id)
             self.send_response(200)
             self.send_header("Content-type", "application/json")
             self.send_header("Access-Control-Allow-Origin", "*")

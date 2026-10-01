@@ -207,6 +207,9 @@
         <option value="cb869485-67bf-4aba-85aa-fc63a7d82e19">CDG_Starfish_Pilot_uTYAV_Coding</option>
         <option value="9d4d5c89-5f04-479a-a83d-242d702079ca">[Asimov - General] Workflows Assessment</option>
       </select>
+      <button class="btn btn-secondary" id="apiKeyBtn" onclick="openApiKeyModal()">
+        <span>🔑</span> <span id="apiKeyBtnText">API Key</span>
+      </button>
       <button class="btn btn-secondary" onclick="loadData(true)">
         <span id="refreshIcon">↻</span> Refresh
       </button>
@@ -286,16 +289,107 @@
     </div>
   </div>
 
+  <div class="modal-overlay" id="apiKeyModal" onclick="closeApiKeyModalOnBackdrop(event)">
+    <div class="modal-card" style="max-width: 540px;">
+      <div class="modal-header">
+        <div class="modal-title">🔑 Snorkel API Key Settings</div>
+        <button class="btn-close" onclick="closeApiKeyModal()">✕</button>
+      </div>
+      <div style="padding: 24px;">
+        <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px; line-height: 1.6;">
+          Enter your personal Snorkel API key to connect your account. All your assigned projects (including any new projects added in the future) will automatically populate in real-time. Your key is saved locally in your browser's <code>localStorage</code> and never sent to any external database.
+        </p>
+        <div style="display: flex; gap: 8px; margin-bottom: 20px;">
+          <input type="password" id="apiKeyInput" placeholder="Paste Snorkel API key (e.g. from ~/.config/stb/config.ini)" style="flex: 1; background: #090D16; border: 1px solid var(--border-color); border-radius: 8px; padding: 10px 14px; color: #fff; font-family: 'JetBrains Mono', monospace; font-size: 13px; outline: none;">
+          <button class="btn btn-secondary" onclick="toggleKeyVisibility()" style="padding: 0 12px;" title="Show/Hide">👁️</button>
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <button class="btn btn-secondary" style="color: #F87171; border-color: rgba(248, 113, 113, 0.3);" onclick="clearApiKey()">Clear Key</button>
+          <div style="display: flex; gap: 10px;">
+            <button class="btn btn-secondary" onclick="closeApiKeyModal()">Cancel</button>
+            <button class="btn" onclick="saveApiKey()">Save & Connect</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script>
     let allSubmissions = [];
     let currentFilter = 'ALL';
     let currentProjectId = 'bf595aee-ae7d-471d-9047-5662498079bd';
 
+    function getApiKey() {
+      return localStorage.getItem('snorkel_api_key') || '';
+    }
+
+    function getHeaders() {
+      const key = getApiKey();
+      const headers = {};
+      if (key) {
+        headers['X-Snorkel-Key'] = key;
+      }
+      return headers;
+    }
+
+    function updateApiKeyBtnStatus() {
+      const key = getApiKey();
+      const btnText = document.getElementById('apiKeyBtnText');
+      if (key) {
+        btnText.textContent = 'Connected ✓';
+        btnText.style.color = '#34D399';
+      } else {
+        btnText.textContent = 'API Key';
+        btnText.style.color = '';
+      }
+    }
+
+    function openApiKeyModal() {
+      document.getElementById('apiKeyInput').value = getApiKey();
+      document.getElementById('apiKeyModal').classList.add('active');
+    }
+
+    function closeApiKeyModal() {
+      document.getElementById('apiKeyModal').classList.remove('active');
+    }
+
+    function closeApiKeyModalOnBackdrop(e) {
+      if (e.target.id === 'apiKeyModal') closeApiKeyModal();
+    }
+
+    function toggleKeyVisibility() {
+      const input = document.getElementById('apiKeyInput');
+      input.type = input.type === 'password' ? 'text' : 'password';
+    }
+
+    async function saveApiKey() {
+      const input = document.getElementById('apiKeyInput').value.trim();
+      if (input) {
+        localStorage.setItem('snorkel_api_key', input);
+      } else {
+        localStorage.removeItem('snorkel_api_key');
+      }
+      updateApiKeyBtnStatus();
+      closeApiKeyModal();
+      await fetchProjects();
+      await loadData(true);
+    }
+
+    async function clearApiKey() {
+      localStorage.removeItem('snorkel_api_key');
+      document.getElementById('apiKeyInput').value = '';
+      updateApiKeyBtnStatus();
+      closeApiKeyModal();
+      await fetchProjects();
+      await loadData(true);
+    }
+
     async function fetchProjects() {
       try {
-        const res = await fetch('/api/projects');
+        const res = await fetch('/api/projects', { headers: getHeaders() });
         const projects = await res.json();
         const select = document.getElementById('projectSelect');
+        const prevId = currentProjectId;
         select.innerHTML = '';
         projects.forEach(p => {
           const opt = document.createElement('option');
@@ -306,9 +400,10 @@
           }
           select.appendChild(opt);
         });
-        if (select.value) {
-          currentProjectId = select.value;
+        if (!Array.from(select.options).some(o => o.value === currentProjectId) && select.options.length > 0) {
+          select.selectedIndex = 0;
         }
+        currentProjectId = select.value;
       } catch (err) {
         console.error('Error fetching projects:', err);
       }
@@ -318,7 +413,9 @@
       const refreshBtn = document.getElementById('refreshIcon');
       if (manual) refreshBtn.style.animation = 'spin 0.6s linear';
       try {
-        const res = await fetch('/api/submissions?project=' + encodeURIComponent(currentProjectId));
+        const res = await fetch('/api/submissions?project=' + encodeURIComponent(currentProjectId), {
+          headers: getHeaders()
+        });
         allSubmissions = await res.json();
         updateStats();
         renderTable();
@@ -413,11 +510,13 @@
       const content = document.getElementById('modalContent');
 
       title.textContent = 'Feedback: ' + folder + ' (' + id.slice(0, 8) + '...)';
-      content.textContent = 'Loading feedback via stb submissions feedback...';
+      content.textContent = 'Loading feedback...';
       modal.classList.add('active');
 
       try {
-        const res = await fetch('/api/feedback?id=' + encodeURIComponent(id));
+        const res = await fetch('/api/feedback?id=' + encodeURIComponent(id), {
+          headers: getHeaders()
+        });
         const data = await res.json();
         content.textContent = data.feedback || 'No feedback or evaluation output recorded yet.';
       } catch (err) {
@@ -440,6 +539,7 @@
     }
 
     (async () => {
+      updateApiKeyBtnStatus();
       await fetchProjects();
       await loadData();
       setInterval(() => loadData(false), 30000);

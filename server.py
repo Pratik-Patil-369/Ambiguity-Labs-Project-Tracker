@@ -180,51 +180,20 @@ print(json.dumps(output_text))
     except Exception as e:
         return f"Error fetching feedback: {str(e)}"
 
-class DashboardHandler(http.server.SimpleHTTPRequestHandler):
+from api.index import handler as ApiHandler
+
+class DashboardHandler(ApiHandler):
     def do_GET(self):
         parsed = urlparse(self.path)
-        
-        if parsed.path == "/":
+        if parsed.path == "/" or parsed.path == "/index.html":
             self.send_response(200)
             self.send_header("Content-type", "text/html; charset=utf-8")
             self.end_headers()
             with open("/home/pratik/Desktop/Internship/task_dashboard/index.html", "rb") as f:
                 self.wfile.write(f.read())
             return
-            
-        elif parsed.path == "/api/projects":
-            projects = get_all_assigned_projects()
-            self.send_response(200)
-            self.send_header("Content-type", "application/json")
-            self.send_header("Access-Control-Allow-Origin", "*")
-            self.end_headers()
-            self.wfile.write(json.dumps(projects).encode("utf-8"))
-            return
-            
-        elif parsed.path == "/api/submissions":
-            qs = parse_qs(parsed.query)
-            proj_id = qs.get("project", ["cb869485-67bf-4aba-85aa-fc63a7d82e19"])[0]
-            subs = get_submissions(proj_id)
-            self.send_response(200)
-            self.send_header("Content-type", "application/json")
-            self.send_header("Access-Control-Allow-Origin", "*")
-            self.end_headers()
-            self.wfile.write(json.dumps(subs).encode("utf-8"))
-            return
-            
-        elif parsed.path == "/api/feedback":
-            qs = parse_qs(parsed.query)
-            sub_id = qs.get("id", [""])[0]
-            fb = get_feedback(sub_id) if sub_id else "No submission ID provided."
-            self.send_response(200)
-            self.send_header("Content-type", "application/json")
-            self.send_header("Access-Control-Allow-Origin", "*")
-            self.end_headers()
-            self.wfile.write(json.dumps({"feedback": fb}).encode("utf-8"))
-            return
-            
-        else:
-            self.send_error(404, "File Not Found")
+        # Delegate all other paths to the Vercel-compatible API handler
+        super().do_GET()
 
 def run():
     socketserver.TCPServer.allow_reuse_address = True
