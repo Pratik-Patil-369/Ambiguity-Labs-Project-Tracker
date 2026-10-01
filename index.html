@@ -34,6 +34,10 @@
       --status-revision-text: #FB7185;
       --status-revision-border: rgba(244, 63, 94, 0.3);
 
+      --status-rejected-bg: rgba(239, 68, 68, 0.16);
+      --status-rejected-text: #EF4444;
+      --status-rejected-border: rgba(239, 68, 68, 0.35);
+
       --status-offered-bg: rgba(59, 130, 246, 0.12);
       --status-offered-text: #60A5FA;
       --status-offered-border: rgba(59, 130, 246, 0.3);
@@ -89,8 +93,8 @@
     .btn-secondary:hover { background: var(--bg-card-hover); }
     .container { max-width: 1400px; margin: 0 auto; padding: 32px; }
     .stats-grid {
-      display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-      gap: 20px; margin-bottom: 32px;
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 18px; margin-bottom: 32px;
     }
     .stat-card {
       background: var(--bg-card); border: 1px solid var(--border-color);
@@ -105,6 +109,7 @@
     .stat-review::before { background: var(--status-review-text); }
     .stat-eval::before { background: var(--status-eval-text); }
     .stat-revision::before { background: var(--status-revision-text); }
+    .stat-rejected::before { background: var(--status-rejected-text); }
     .stat-title { font-size: 13px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
     .stat-value { font-size: 32px; font-weight: 700; line-height: 1; }
     .controls-bar { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; }
@@ -149,6 +154,8 @@
     .badge-eval .badge-dot { background: var(--status-eval-text); }
     .badge-revision { background: var(--status-revision-bg); color: var(--status-revision-text); border: 1px solid var(--status-revision-border); }
     .badge-revision .badge-dot { background: var(--status-revision-text); }
+    .badge-rejected { background: var(--status-rejected-bg); color: var(--status-rejected-text); border: 1px solid var(--status-rejected-border); }
+    .badge-rejected .badge-dot { background: var(--status-rejected-text); }
     .badge-offered { background: var(--status-offered-bg); color: var(--status-offered-text); border: 1px solid var(--status-offered-border); }
     .badge-offered .badge-dot { background: var(--status-offered-text); }
     .btn-action {
@@ -236,6 +243,10 @@
         <span class="stat-title">Needs Revision</span>
         <span class="stat-value" id="statRevision" style="color: var(--status-revision-text);">--</span>
       </div>
+      <div class="stat-card stat-rejected">
+        <span class="stat-title">Rejected</span>
+        <span class="stat-value" id="statRejected" style="color: var(--status-rejected-text);">--</span>
+      </div>
     </div>
 
     <div class="controls-bar">
@@ -250,6 +261,7 @@
         <div class="pill" onclick="setStatusFilter('REVIEW_PENDING', this)">Review Pending</div>
         <div class="pill" onclick="setStatusFilter('EVALUATION_PENDING', this)">Evaluation Pending</div>
         <div class="pill" onclick="setStatusFilter('NEEDS_REVISION', this)">Needs Revision</div>
+        <div class="pill" onclick="setStatusFilter('REJECTED', this)">Rejected</div>
       </div>
     </div>
 
@@ -468,6 +480,7 @@
         document.getElementById('statReview').textContent = defaultVal;
         document.getElementById('statEval').textContent = defaultVal;
         document.getElementById('statRevision').textContent = defaultVal;
+        document.getElementById('statRejected').textContent = defaultVal;
         if (!getApiKey()) return;
       }
 
@@ -475,23 +488,26 @@
       const accepted = allSubmissions.filter(s => s.state && s.state.toUpperCase().includes('ACCEPTED')).length;
       const review = allSubmissions.filter(s => s.state && (s.state.toUpperCase().includes('REVIEW_PENDING') || s.state.toUpperCase().includes('OFFERED') || s.state.toUpperCase().includes('IN_PROGRESS'))).length;
       const evaluation = allSubmissions.filter(s => s.state && s.state.toUpperCase().includes('EVALUATION_PENDING')).length;
-      const revision = allSubmissions.filter(s => s.state && (s.state.toUpperCase().includes('NEEDS_REVISION') || s.state.toUpperCase().includes('REJECTED'))).length;
+      const revision = allSubmissions.filter(s => s.state && (s.state.toUpperCase().includes('NEEDS_REVISION') || s.state.toUpperCase().includes('REVISION')) && !s.state.toUpperCase().includes('REJECTED')).length;
+      const rejected = allSubmissions.filter(s => s.state && s.state.toUpperCase().includes('REJECTED')).length;
 
       document.getElementById('statTotal').textContent = total;
       document.getElementById('statAccepted').textContent = accepted;
       document.getElementById('statReview').textContent = review;
       document.getElementById('statEval').textContent = evaluation;
       document.getElementById('statRevision').textContent = revision;
+      document.getElementById('statRejected').textContent = rejected;
     }
 
     function getBadgeClass(state) {
       if (!state) return 'badge-review';
       const s = state.toUpperCase();
+      if (s.includes('REJECTED')) return 'badge-rejected';
       if (s.includes('ACCEPTED')) return 'badge-accepted';
       if (s.includes('OFFERED')) return 'badge-offered';
       if (s.includes('REVIEW_PENDING') || s.includes('IN_PROGRESS')) return 'badge-review';
       if (s.includes('EVALUATION_PENDING')) return 'badge-eval';
-      if (s.includes('NEEDS_REVISION') || s.includes('REJECTED')) return 'badge-revision';
+      if (s.includes('NEEDS_REVISION') || s.includes('REVISION')) return 'badge-revision';
       return 'badge-review';
     }
 
@@ -504,7 +520,18 @@
       const search = (document.getElementById('searchInput').value || '').toLowerCase().trim();
 
       const filtered = allSubmissions.filter(s => {
-        const matchesFilter = currentFilter === 'ALL' || (s.state && s.state.toUpperCase().includes(currentFilter));
+        const stateUpper = (s.state || '').toUpperCase();
+        let matchesFilter = false;
+        if (currentFilter === 'ALL') {
+          matchesFilter = true;
+        } else if (currentFilter === 'NEEDS_REVISION') {
+          matchesFilter = (stateUpper.includes('REVISION') || stateUpper.includes('NEEDS_REVISION')) && !stateUpper.includes('REJECTED');
+        } else if (currentFilter === 'REJECTED') {
+          matchesFilter = stateUpper.includes('REJECTED');
+        } else {
+          matchesFilter = stateUpper.includes(currentFilter);
+        }
+
         const folderStr = (s.folder || '').toLowerCase();
         const idStr = (s.id || '').toLowerCase();
         const numStr = (s.num || '').toString();
