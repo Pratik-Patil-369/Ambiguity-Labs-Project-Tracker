@@ -203,9 +203,7 @@
     </div>
     <div class="header-actions">
       <select id="projectSelect" class="select-project" onchange="changeProject(this.value)">
-        <option value="bf595aee-ae7d-471d-9047-5662498079bd" selected>CDG_Starfish_Pilot_uTYAV_Coding_V3</option>
-        <option value="cb869485-67bf-4aba-85aa-fc63a7d82e19">CDG_Starfish_Pilot_uTYAV_Coding</option>
-        <option value="9d4d5c89-5f04-479a-a83d-242d702079ca">[Asimov - General] Workflows Assessment</option>
+        <option value="">-- Connect API Key --</option>
       </select>
       <button class="btn btn-secondary" id="apiKeyBtn" onclick="openApiKeyModal()">
         <span>🔑</span> <span id="apiKeyBtnText">API Key</span>
@@ -385,12 +383,21 @@
     }
 
     async function fetchProjects() {
+      const select = document.getElementById('projectSelect');
+      if (!getApiKey()) {
+        select.innerHTML = '<option value="">-- Connect API Key --</option>';
+        currentProjectId = '';
+        return;
+      }
       try {
         const res = await fetch('/api/projects', { headers: getHeaders() });
         const projects = await res.json();
-        const select = document.getElementById('projectSelect');
-        const prevId = currentProjectId;
         select.innerHTML = '';
+        if (!projects || projects.length === 0) {
+          select.innerHTML = '<option value="">No Assigned Projects Found</option>';
+          currentProjectId = '';
+          return;
+        }
         projects.forEach(p => {
           const opt = document.createElement('option');
           opt.value = p.id;
@@ -412,6 +419,32 @@
     async function loadData(manual = false) {
       const refreshBtn = document.getElementById('refreshIcon');
       if (manual) refreshBtn.style.animation = 'spin 0.6s linear';
+
+      if (!getApiKey()) {
+        allSubmissions = [];
+        updateStats();
+        document.getElementById('submissionsTableBody').innerHTML = 
+          '<tr><td colspan="6" style="padding: 0;">' +
+          '<div style="text-align: center; padding: 60px 20px;">' +
+          '<div style="font-size: 42px; margin-bottom: 14px;">🔒</div>' +
+          '<h2 style="font-size: 18px; font-weight: 600; margin-bottom: 8px; color: var(--text-main);">No Snorkel API Key Connected</h2>' +
+          '<p style="font-size: 13px; color: var(--text-muted); max-width: 460px; margin: 0 auto 22px; line-height: 1.6;">' +
+          'Connect your Snorkel API key to securely view your assigned projects and live task submissions. Your key is stored only in your local browser.' +
+          '</p>' +
+          '<button class="btn" onclick="openApiKeyModal()"><span>🔑</span> Connect API Key</button>' +
+          '</div></td></tr>';
+        if (manual) setTimeout(() => refreshBtn.style.animation = '', 600);
+        return;
+      }
+
+      if (!currentProjectId) {
+        allSubmissions = [];
+        updateStats();
+        document.getElementById('submissionsTableBody').innerHTML = '<tr><td colspan="6" class="empty-state">Select a project to view submissions.</td></tr>';
+        if (manual) setTimeout(() => refreshBtn.style.animation = '', 600);
+        return;
+      }
+
       try {
         const res = await fetch('/api/submissions?project=' + encodeURIComponent(currentProjectId), {
           headers: getHeaders()
@@ -428,6 +461,16 @@
     }
 
     function updateStats() {
+      if (!getApiKey() || allSubmissions.length === 0) {
+        const defaultVal = getApiKey() ? '0' : '--';
+        document.getElementById('statTotal').textContent = defaultVal;
+        document.getElementById('statAccepted').textContent = defaultVal;
+        document.getElementById('statReview').textContent = defaultVal;
+        document.getElementById('statEval').textContent = defaultVal;
+        document.getElementById('statRevision').textContent = defaultVal;
+        if (!getApiKey()) return;
+      }
+
       const total = allSubmissions.length;
       const accepted = allSubmissions.filter(s => s.state && s.state.toUpperCase().includes('ACCEPTED')).length;
       const review = allSubmissions.filter(s => s.state && (s.state.toUpperCase().includes('REVIEW_PENDING') || s.state.toUpperCase().includes('OFFERED') || s.state.toUpperCase().includes('IN_PROGRESS'))).length;

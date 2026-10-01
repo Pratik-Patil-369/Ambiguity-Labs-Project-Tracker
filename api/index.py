@@ -207,14 +207,12 @@ class handler(BaseHTTPRequestHandler):
         api_key = resolve_api_key(self)
 
         if path.endswith("/projects"):
-            projects = None
+            projects = []
             if api_key:
                 try:
                     projects = fetch_projects_dynamic(api_key)
                 except Exception as e:
                     print(f"Dynamic project fetch failed: {e}")
-            if not projects:
-                projects = FALLBACK_PROJECTS
                 
             self.send_response(200)
             self.send_header("Content-type", "application/json")
@@ -224,20 +222,13 @@ class handler(BaseHTTPRequestHandler):
 
         elif path.endswith("/submissions"):
             qs = parse_qs(parsed.query)
-            proj_id = qs.get("project", ["bf595aee-ae7d-471d-9047-5662498079bd"])[0]
-            subs = None
-            if api_key:
+            proj_id = qs.get("project", [""])[0]
+            subs = []
+            if api_key and proj_id:
                 try:
                     subs = fetch_assignments_dynamic(api_key, proj_id)
                 except Exception as e:
                     print(f"Dynamic assignments fetch failed: {e}")
-            if subs is None or len(subs) == 0:
-                if "bf595aee" in proj_id:
-                    subs = FALLBACK_V3_SUBS
-                elif "cb869485" in proj_id:
-                    subs = FALLBACK_V1_SUBS
-                else:
-                    subs = []
 
             self.send_response(200)
             self.send_header("Content-type", "application/json")
@@ -248,7 +239,10 @@ class handler(BaseHTTPRequestHandler):
         elif path.endswith("/feedback"):
             qs = parse_qs(parsed.query)
             sub_id = qs.get("id", [""])[0]
-            fb = fetch_feedback_dynamic(api_key, sub_id) if api_key else fetch_feedback_dynamic("", sub_id)
+            if not api_key:
+                fb = "🔒 Please connect your Snorkel API key to view submission feedback."
+            else:
+                fb = fetch_feedback_dynamic(api_key, sub_id) if sub_id else "No submission ID provided."
             self.send_response(200)
             self.send_header("Content-type", "application/json")
             self.send_header("Access-Control-Allow-Origin", "*")
