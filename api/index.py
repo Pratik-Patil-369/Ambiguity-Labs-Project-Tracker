@@ -1,0 +1,210 @@
+from http.server import BaseHTTPRequestHandler
+import json
+import os
+import urllib.request
+from urllib.parse import urlparse, parse_qs, quote
+
+BASE_API_URL = "https://experts.snorkel-ai.com/api/v1"
+
+KNOWN_FOLDERS = {
+    "a950ea00-7f0e-406a-9adb-9ad3f809edc2": "oscillator-coulomb-viscous-damping",
+    "a4ea349a-0163-4b58-bd26-c12a505c9c51": "xrd-williamson-hall-strain-size-v2",
+    "db9464ea-a3a2-499a-97cb-16b23a5c9e75": "bolt-loosening-vs-thermal-stiffness_v2",
+    "544734c6-cdce-44ac-b253-5a72f9fd9430": "battery-hppc-dcir-partitioning",
+    "dfa255ca-9aae-4d5c-8ebd-e798f38c1540": "power-grid-capacitor-switching-vs-fault",
+    "ebf12aa5-4931-40d0-a461-ba5c41ce8d34": "sparse-identification-nonautonomous-dynamics",
+    "d0eac590-aa50-428e-9a86-548df27fd0e8": "thz_tds_drude_smith_inversion",
+    "fc628f92-d6c8-414f-8542-5d72af8d89fe": "bearing-fault-variable-speed",
+    "e67890ec-6744-4388-bd5d-8b020eee1ebc": "bearing-fault-variable-speed-v2",
+    "c286186f-c5d5-440b-95de-9b2984b0add4": "drt-impedance-diagnostics",
+    "4ba7ce7e-5da8-46eb-b500-60adb919d8f1": "eis-circuit-discrimination",
+    "72c7b048-b2c7-4709-b0c2-0a307cb7314e": "spectroscopy-conflict",
+    "b5f298d4-42bd-4000-9b65-41dd9d39ab15": "pk-compartmental-modeling",
+    "33d9a82a-42e4-42b6-b163-a22a49351e32": "corrosion-rate-eis-polarization",
+    "0f56a4e8-85a7-47c3-9e94-edee3dc713af": "battery-dqdv-soh",
+    "0b91a985-42a6-4b00-a6e3-2b1e0d6f03d5": "seismic-event-discrimination",
+    "ae8f4448-bff5-4c61-b955-058f9866eb91": "telemetry-falsification",
+    "d2673bdf-fff4-45d3-9a65-8eeb9b416625": "pmu-fault-localization",
+    "66b3dbb0-3026-4b54-a441-8a3b34764a76": "workflows-assessment-task-01",
+    "f3ffa96f-4ddf-4696-97c8-b868cff8580a": "capacitor-bank-controlled-switching-design"
+}
+
+FALLBACK_PROJECTS = [
+    {"name": "CDG_Starfish_Pilot_uTYAV_Coding_V3", "id": "bf595aee-ae7d-471d-9047-5662498079bd", "submitter": True, "reviewer": False},
+    {"name": "CDG_Starfish_Pilot_uTYAV_Coding", "id": "cb869485-67bf-4aba-85aa-fc63a7d82e19", "submitter": True, "reviewer": False},
+    {"name": "[Asimov - General] Workflows Assessment", "id": "9d4d5c89-5f04-479a-a83d-242d702079ca", "submitter": True, "reviewer": False}
+]
+
+FALLBACK_V3_SUBS = [
+    {
+        "num": "1",
+        "id": "f3ffa96f-4ddf-4696-97c8-b868cff8580a",
+        "created": "10/01 03:34",
+        "folder": "capacitor-bank-controlled-switching-design",
+        "state": "OFFERED",
+        "payment": "PENDING"
+    }
+]
+
+FALLBACK_V1_SUBS = [
+    {"num": "1", "id": "a950ea00-7f0e-406a-9adb-9ad3f809edc2", "created": "08/26 19:55", "folder": "oscillator-coulomb-viscous-damping", "state": "ACCEPTED", "payment": "PAYOUT_SUBMITTED"},
+    {"num": "2", "id": "a4ea349a-0163-4b58-bd26-c12a505c9c51", "created": "08/26 21:00", "folder": "xrd-williamson-hall-strain-size-v2", "state": "ACCEPTED", "payment": "PAYOUT_SUBMITTED"},
+    {"num": "3", "id": "db9464ea-a3a2-499a-97cb-16b23a5c9e75", "created": "08/26 21:05", "folder": "bolt-loosening-vs-thermal-stiffness_v2", "state": "ACCEPTED", "payment": "PAYOUT_SUBMITTED"},
+    {"num": "4", "id": "544734c6-cdce-44ac-b253-5a72f9fd9430", "created": "08/26 21:10", "folder": "battery-hppc-dcir-partitioning", "state": "ACCEPTED", "payment": "PENDING"},
+    {"num": "5", "id": "dfa255ca-9aae-4d5c-8ebd-e798f38c1540", "created": "08/26 21:15", "folder": "power-grid-capacitor-switching-vs-fault", "state": "ACCEPTED", "payment": "PENDING"},
+    {"num": "6", "id": "ebf12aa5-4931-40d0-a461-ba5c41ce8d34", "created": "08/26 21:20", "folder": "sparse-identification-nonautonomous-dynamics", "state": "ACCEPTED", "payment": "PENDING"},
+    {"num": "7", "id": "d0eac590-aa50-428e-9a86-548df27fd0e8", "created": "08/26 21:25", "folder": "thz_tds_drude_smith_inversion", "state": "ACCEPTED", "payment": "PENDING"},
+    {"num": "8", "id": "c286186f-c5d5-440b-95de-9b2984b0add4", "created": "08/26 21:30", "folder": "drt-impedance-diagnostics", "state": "ACCEPTED", "payment": "PENDING"},
+    {"num": "9", "id": "b5f298d4-42bd-4000-9b65-41dd9d39ab15", "created": "08/26 21:35", "folder": "pk-compartmental-modeling", "state": "ACCEPTED", "payment": "PENDING"},
+    {"num": "10", "id": "0f56a4e8-85a7-47c3-9e94-edee3dc713af", "created": "08/26 21:40", "folder": "battery-dqdv-soh", "state": "ACCEPTED", "payment": "PENDING"},
+    {"num": "11", "id": "0b91a985-42a6-4b00-a6e3-2b1e0d6f03d5", "created": "08/26 21:45", "folder": "seismic-event-discrimination", "state": "ACCEPTED", "payment": "PENDING"},
+    {"num": "12", "id": "ae8f4448-bff5-4c61-b955-058f9866eb91", "created": "08/26 21:50", "folder": "telemetry-falsification", "state": "ACCEPTED", "payment": "PENDING"},
+    {"num": "13", "id": "d2673bdf-fff4-45d3-9a65-8eeb9b416625", "created": "08/26 21:55", "folder": "pmu-fault-localization", "state": "ACCEPTED", "payment": "PENDING"}
+]
+
+def get_api_key():
+    key = os.environ.get("SNORKEL_API_KEY")
+    if key:
+        return key.strip()
+    config_path = os.path.expanduser("~/.config/stb/config.ini")
+    if os.path.exists(config_path):
+        try:
+            import configparser
+            cp = configparser.ConfigParser()
+            cp.read(config_path)
+            if cp.has_section("auth") and "api_key" in cp["auth"]:
+                return cp["auth"]["api_key"].strip()
+        except Exception:
+            pass
+    return None
+
+def fetch_live_data(api_key):
+    headers = {"x-key": api_key, "Accept": "application/json"}
+    
+    # 1. Get user email
+    req_me = urllib.request.Request(f"{BASE_API_URL}/users/me", headers=headers)
+    with urllib.request.urlopen(req_me, timeout=10) as resp:
+        me_data = json.loads(resp.read().decode())
+        email = me_data.get("email")
+    if not email:
+        raise ValueError("Could not get user email")
+
+    # 2. Get assignments
+    url_assign = f"{BASE_API_URL}/assignments?assignee={quote(email, safe='')}"
+    req_assign = urllib.request.Request(url_assign, headers=headers)
+    with urllib.request.urlopen(req_assign, timeout=12) as resp:
+        assign_data = json.loads(resp.read().decode())
+        raw_list = assign_data.get("assignments", [])
+
+    return raw_list
+
+def get_submissions_for_project(project_id):
+    api_key = get_api_key()
+    if api_key:
+        try:
+            raw_list = fetch_live_data(api_key)
+            filtered = [a for a in raw_list if a.get("project_id") == project_id or not project_id]
+            subs = []
+            for idx, a in enumerate(filtered, 1):
+                sub_id = a.get("task_id") or a.get("assignment_id") or ""
+                folder = KNOWN_FOLDERS.get(sub_id, f"task-{sub_id[:8]}")
+                raw_created = a.get("created_at", "")
+                created = raw_created[5:16].replace("-", "/") if len(raw_created) >= 16 else raw_created
+                subs.append({
+                    "num": str(idx),
+                    "id": sub_id,
+                    "created": created,
+                    "folder": folder,
+                    "state": a.get("status", ""),
+                    "payment": a.get("payment_status", "PENDING")
+                })
+            if subs:
+                return subs
+        except Exception as e:
+            print(f"Error fetching live assignments: {e}")
+
+    # Fallback data
+    if "bf595aee" in project_id:
+        return FALLBACK_V3_SUBS
+    elif "cb869485" in project_id:
+        return FALLBACK_V1_SUBS
+    return []
+
+def get_feedback_for_sub(sub_id):
+    if sub_id == "f3ffa96f-4ddf-4696-97c8-b868cff8580a":
+        return ("📋 PRIOR QC / AUDIT REVIEWER FEEDBACK:\n"
+                "Review closed two findings: report numeric checks matched any number in the text, "
+                "so an unrelated coincidental match let a wrong resistance value pass, and the boolean "
+                "parser rejected valid float-encoded true/false flags; both were fixed by binding R/L/C "
+                "checks to labelled quantities and accepting numeric booleans. A citation item was left optional. "
+                "The 2026-09-25 audit found scenario-ID matching used plain substrings, letting \"base\" match "
+                "inside \"based\" or \"database\" and passing a report that never named the BASE case, so it was "
+                "tightened to word boundaries; it also relaxed a check that had rejected the contract's own "
+                "term \"pre-insertion energy,\" raising the weaker model's pass count from 3/5 to 4/5.")
+    
+    api_key = get_api_key()
+    if api_key:
+        try:
+            headers = {"x-key": api_key, "Accept": "application/json"}
+            # Fetch directly from DaaS assignment
+            url = f"{BASE_API_URL}/assignment/{sub_id}"
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                task = json.loads(resp.read().decode())
+                sections = []
+                accept_notes = (task.get("accept_notes") or "").strip()
+                if accept_notes:
+                    sections.append("🎉 REVIEWER ACCEPT NOTES:\n" + accept_notes)
+                revision_notes = (task.get("revision_notes") or "").strip()
+                if revision_notes:
+                    sections.append("📝 REVISION NOTES:\n" + revision_notes)
+                sd = task.get("static_document") or {}
+                if isinstance(sd, dict):
+                    sd_inner = sd.get("static_document") or {}
+                    fb = (sd_inner.get("Feedback") or sd.get("Feedback") or "").strip()
+                    if fb:
+                        sections.append("📋 PRIOR QC / AUDIT REVIEWER FEEDBACK:\n" + fb)
+                if sections:
+                    return "\n\n" + ("="*75) + "\n\n".join(sections)
+        except Exception:
+            pass
+
+    return "ℹ️ TASK DETAILS:\nBenchmark task accepted directly on the platform without requiring revisions."
+
+class handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        parsed = urlparse(self.path)
+        path = parsed.path
+
+        if path.endswith("/projects"):
+            self.send_response(200)
+            self.send_header("Content-type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(FALLBACK_PROJECTS).encode("utf-8"))
+
+        elif path.endswith("/submissions"):
+            qs = parse_qs(parsed.query)
+            proj_id = qs.get("project", ["bf595aee-ae7d-471d-9047-5662498079bd"])[0]
+            subs = get_submissions_for_project(proj_id)
+            self.send_response(200)
+            self.send_header("Content-type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(subs).encode("utf-8"))
+
+        elif path.endswith("/feedback"):
+            qs = parse_qs(parsed.query)
+            sub_id = qs.get("id", [""])[0]
+            fb = get_feedback_for_sub(sub_id)
+            self.send_response(200)
+            self.send_header("Content-type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps({"feedback": fb}).encode("utf-8"))
+
+        else:
+            self.send_response(404)
+            self.send_header("Content-type", "text/plain")
+            self.end_headers()
+            self.wfile.write(b"Not Found")
