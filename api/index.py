@@ -173,22 +173,30 @@ def fetch_assignments_dynamic(api_key, project_id):
         })
     return subs
 
+def resolve_assignment_id_dynamic(api_key, target_id):
+    """Resolves task_id or submission_id to assignment_id for querying /assignment/{id}."""
+    try:
+        user_info = fetch_user_info(api_key)
+        email = user_info.get("email")
+        if email:
+            headers = {"x-key": api_key, "Accept": "application/json"}
+            url = f"{BASE_API_URL}/assignments?assignee={quote(email, safe='')}"
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read().decode())
+                for a in data.get("assignments") or []:
+                    if a.get("task_id") == target_id or a.get("assignment_id") == target_id:
+                        return a.get("assignment_id")
+    except Exception as e:
+        print(f"Error resolving assignment ID: {e}")
+    return target_id
+
 def fetch_feedback_dynamic(api_key, sub_id):
     """Fetches reviewer and audit notes for an assignment."""
-    if sub_id == "f3ffa96f-4ddf-4696-97c8-b868cff8580a":
-        return ("📋 PRIOR QC / AUDIT REVIEWER FEEDBACK:\n"
-                "Review closed two findings: report numeric checks matched any number in the text, "
-                "so an unrelated coincidental match let a wrong resistance value pass, and the boolean "
-                "parser rejected valid float-encoded true/false flags; both were fixed by binding R/L/C "
-                "checks to labelled quantities and accepting numeric booleans. A citation item was left optional. "
-                "The 2026-09-25 audit found scenario-ID matching used plain substrings, letting \"base\" match "
-                "inside \"based\" or \"database\" and passing a report that never named the BASE case, so it was "
-                "tightened to word boundaries; it also relaxed a check that had rejected the contract's own "
-                "term \"pre-insertion energy,\" raising the weaker model's pass count from 3/5 to 4/5.")
-                
     headers = {"x-key": api_key, "Accept": "application/json"}
     try:
-        url = f"{BASE_API_URL}/assignment/{sub_id}"
+        assignment_id = resolve_assignment_id_dynamic(api_key, sub_id)
+        url = f"{BASE_API_URL}/assignment/{assignment_id}"
         req = urllib.request.Request(url, headers=headers)
         with urllib.request.urlopen(req, timeout=10) as resp:
             task = json.loads(resp.read().decode())
@@ -199,18 +207,44 @@ def fetch_feedback_dynamic(api_key, sub_id):
             revision_notes = (task.get("revision_notes") or "").strip()
             if revision_notes:
                 sections.append("📝 REVISION NOTES:\n" + revision_notes)
+            
+            # Reviewer comments
+            user_reviews = task.get("user_reviews") or []
+            for r in user_reviews:
+                payload = r.get("review_payload") or {}
+                for k, v in payload.items():
+                    if k.startswith("textarea-") and isinstance(v, str) and v.strip():
+                        sections.append("📋 REVIEWER COMMENTS:\n" + v.strip())
+
+            # Evaluation & QC summary
+            task_docs = task.get("task_documents") or []
+            for d in task_docs:
+                sub_doc = d.get("submission_document") or {}
+                ts = (sub_doc.get("text_summary") or "").strip()
+                if ts:
+                    sections.append("📊 EVALUATION SUMMARY:\n" + ts)
+                qcs = (sub_doc.get("quality_check_summary") or "").strip()
+                if qcs:
+                    sections.append("✅ QUALITY CHECK SUMMARY:\n" + qcs)
+
+            # Prior QC / Audit Feedback in static document
             sd = task.get("static_document") or {}
             if isinstance(sd, dict):
-                sd_inner = sd.get("static_document") or {}
-                fb = (sd_inner.get("Feedback") or sd.get("Feedback") or "").strip()
+                sd_inner = sd.get("static_document") or sd
+                fb = (sd_inner.get("Feedback") or "").strip()
                 if fb:
                     sections.append("📋 PRIOR QC / AUDIT REVIEWER FEEDBACK:\n" + fb)
+
+            eval_notes = (task.get("eval_revision_notes") or "").strip()
+            if eval_notes:
+                sections.append("⚡ AUTOEVAL NOTES:\n" + eval_notes)
+
             if sections:
-                return "\n\n" + ("="*75) + "\n\n".join(sections)
-    except Exception:
-        pass
+                return ("\n\n" + "="*75 + "\n\n").join(sections)
+    except Exception as e:
+        print(f"Error fetching assignment dynamic feedback: {e}")
         
-    return "ℹ️ TASK DETAILS:\nBenchmark task accepted directly on the platform without requiring revisions."
+    return "ℹ️ TASK DETAILS:\nNo additional reviewer notes recorded for this submission yet."
 
 class handler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
