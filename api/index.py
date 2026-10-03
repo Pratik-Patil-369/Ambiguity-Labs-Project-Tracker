@@ -31,7 +31,8 @@ KNOWN_FOLDERS = {
     "75f996f3-17aa-4673-b569-d21a9ef3f104": "fluid-structure-interaction-parameter-inference",
     "7879db76-3895-426e-a2b9-f4dcd88f8bed": "modal-damage-detection",
     "dbcc63c7-4f56-4104-a9c7-97957bf8555a": "fmcw-radar-target-extraction-deghosting",
-    "0a3fc595-74fe-4062-8dec-5ccdbf925a8d": "sgs-closure-backscatter-calibration"
+    "0a3fc595-74fe-4062-8dec-5ccdbf925a8d": "sgs-closure-backscatter-calibration",
+    "39f009c3-cdaf-42bb-b472-b1d69fba3f32": "polymer-dma-master-curve"
 }
 
 FALLBACK_PROJECTS = [
