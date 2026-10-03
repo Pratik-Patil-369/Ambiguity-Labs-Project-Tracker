@@ -82,6 +82,13 @@ def get_all_assigned_projects():
     ]
     return default_projects
 
+ASSIGNMENT_REMAPPINGS = {
+    "READY_TO_PACKAGE": "ACCEPTED",
+    "READY_TO_DELIVER": "ACCEPTED",
+    "DELIVERED": "ACCEPTED",
+    "COMPLETED": "REVIEW_PENDING",
+}
+
 def get_submissions(project_id):
     now = time.time()
     if project_id in CACHE["submissions"] and (now - CACHE["submissions_time"].get(project_id, 0)) < 15:
@@ -104,12 +111,14 @@ print(json.dumps(filtered))
                 sub_id = item.get("submission_id", "")
                 raw_folder = item.get("folder_name", "")
                 resolved_folder = KNOWN_FOLDERS.get(sub_id, raw_folder if raw_folder else f"task-{sub_id[:8]}")
+                raw_state = item.get("assignment_state", "")
+                state = ASSIGNMENT_REMAPPINGS.get(raw_state, raw_state)
                 subs.append({
                     "num": str(idx),
                     "id": sub_id,
                     "created": item.get("created_at", ""),
                     "folder": resolved_folder,
-                    "state": item.get("assignment_state", ""),
+                    "state": state,
                     "payment": item.get("payment_status", "")
                 })
             CACHE["submissions"][project_id] = subs

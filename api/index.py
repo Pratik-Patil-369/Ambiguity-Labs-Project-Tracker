@@ -127,6 +127,13 @@ def fetch_projects_dynamic(api_key):
     projects.sort(key=lambda x: (not ("Starfish" in x["name"]), x["name"]))
     return projects
 
+ASSIGNMENT_REMAPPINGS = {
+    "READY_TO_PACKAGE": "ACCEPTED",
+    "READY_TO_DELIVER": "ACCEPTED",
+    "DELIVERED": "ACCEPTED",
+    "COMPLETED": "REVIEW_PENDING",
+}
+
 def fetch_assignments_dynamic(api_key, project_id):
     """Dynamically fetches assignments for the user, filtered by project."""
     headers = {"x-key": api_key, "Accept": "application/json"}
@@ -154,12 +161,14 @@ def fetch_assignments_dynamic(api_key, project_id):
         folder = KNOWN_FOLDERS.get(task_id, a.get("task_title") or f"task-{task_id[:8]}")
         raw_created = a.get("created_at") or ""
         created = raw_created[5:16].replace("-", "/") if len(raw_created) >= 16 else raw_created
+        raw_status = a.get("status", "")
+        state = ASSIGNMENT_REMAPPINGS.get(raw_status, raw_status)
         subs.append({
             "num": str(idx),
             "id": task_id,
             "created": created,
             "folder": folder,
-            "state": a.get("status", ""),
+            "state": state,
             "payment": a.get("payment_status", "PENDING")
         })
     return subs
