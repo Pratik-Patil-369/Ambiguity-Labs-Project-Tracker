@@ -321,10 +321,10 @@ index_html_content = r'''<!DOCTYPE html>
 
     function updateStats() {
       const total = allSubmissions.length;
-      const accepted = allSubmissions.filter(s => s.state && s.state.includes('ACCEPTED')).length;
-      const review = allSubmissions.filter(s => s.state && s.state.includes('REVIEW_PENDING')).length;
-      const evaluation = allSubmissions.filter(s => s.state && s.state.includes('EVALUATION_PENDING')).length;
-      const revision = allSubmissions.filter(s => s.state && s.state.includes('NEEDS_REVISION')).length;
+      const accepted = allSubmissions.filter(s => s.state && (s.state.toUpperCase().includes('ACCEPTED') || s.state.toUpperCase().includes('COMPLETED'))).length;
+      const review = allSubmissions.filter(s => s.state && (s.state.toUpperCase().includes('REVIEW_PENDING') || s.state.toUpperCase().includes('OFFERED'))).length;
+      const evaluation = allSubmissions.filter(s => s.state && s.state.toUpperCase().includes('EVALUATION_PENDING')).length;
+      const revision = allSubmissions.filter(s => s.state && s.state.toUpperCase().includes('NEEDS_REVISION')).length;
 
       document.getElementById('statTotal').textContent = total;
       document.getElementById('statAccepted').textContent = accepted;
@@ -335,10 +335,11 @@ index_html_content = r'''<!DOCTYPE html>
 
     function getBadgeClass(state) {
       if (!state) return 'badge-review';
-      if (state.includes('ACCEPTED')) return 'badge-accepted';
-      if (state.includes('REVIEW_PENDING')) return 'badge-review';
-      if (state.includes('EVALUATION_PENDING')) return 'badge-eval';
-      if (state.includes('NEEDS_REVISION')) return 'badge-revision';
+      const s = state.toUpperCase();
+      if (s.includes('ACCEPTED') || s.includes('COMPLETED')) return 'badge-accepted';
+      if (s.includes('REVIEW_PENDING') || s.includes('OFFERED')) return 'badge-review';
+      if (s.includes('EVALUATION_PENDING')) return 'badge-eval';
+      if (s.includes('NEEDS_REVISION')) return 'badge-revision';
       return 'badge-review';
     }
 

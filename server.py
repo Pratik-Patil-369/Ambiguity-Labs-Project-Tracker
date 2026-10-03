@@ -30,7 +30,12 @@ KNOWN_FOLDERS = {
     "ae8f4448-bff5-4c61-b955-058f9866eb91": "telemetry-falsification",
     "d2673bdf-fff4-45d3-9a65-8eeb9b416625": "pmu-fault-localization",
     "66b3dbb0-3026-4b54-a441-8a3b34764a76": "workflows-assessment-task-01",
-    "f3ffa96f-4ddf-4696-97c8-b868cff8580a": "capacitor-bank-controlled-switching-design"
+    "f3ffa96f-4ddf-4696-97c8-b868cff8580a": "capacitor-bank-controlled-switching-design",
+    "cab522f2-6caf-402e-97cb-7fcfb70f02a8": "dsc-mri-perfusion-aif-deconv",
+    "75f996f3-17aa-4673-b569-d21a9ef3f104": "fluid-structure-interaction-parameter-inference",
+    "7879db76-3895-426e-a2b9-f4dcd88f8bed": "modal-damage-detection",
+    "dbcc63c7-4f56-4104-a9c7-97957bf8555a": "fmcw-radar-target-extraction-deghosting",
+    "0a3fc595-74fe-4062-8dec-5ccdbf925a8d": "sgs-closure-backscatter-calibration"
 }
 
 CACHE = {
