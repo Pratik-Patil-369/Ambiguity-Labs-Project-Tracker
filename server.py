@@ -38,7 +38,8 @@ KNOWN_FOLDERS = {
     "0a3fc595-74fe-4062-8dec-5ccdbf925a8d": "sgs-closure-backscatter-calibration",
     "39f009c3-cdaf-42bb-b472-b1d69fba3f32": "polymer-dma-master-curve",
     "d6920367-5487-4c69-896b-aa21315520e8": "nomoto-rudder-autopilot-zigzag-certification",
-    "320c0500-3991-49ca-8066-fee57ce2e218": "mav-balance-calibration"
+    "320c0500-3991-49ca-8066-fee57ce2e218": "mav-balance-calibration",
+    "7ce93bd5-561e-48f5-8fd6-f3763f4fb391": "concrete-canal-lining-rapid-drawdown-uplift-retrofit"
 }
 
 CACHE = {
